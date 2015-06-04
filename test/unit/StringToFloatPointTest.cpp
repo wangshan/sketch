@@ -17,7 +17,8 @@ TEST(StringToFloatPointTest, testCast)
 
     const auto d = randomReal();
     const std::string y = realToString(d);
-    EXPECT_FLOAT_EQ(d, cache.cast(y));
+    // TODO: use almostEqual
+    EXPECT_DOUBLE_EQ(d, cache.cast(y));
 }
 
 }

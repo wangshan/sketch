@@ -23,8 +23,13 @@ target_link_libraries(anotherDummyTest gtest gtest_main gmock gmock_main)
 #set_tests_properties(test1 [test2...] PROPERTIES prop1 value1 prop2 value2)
 # see the list of properties here:
 # http://www.cmake.org/cmake/help/v3.0/manual/cmake-properties.7.html
-add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND}
-                      DEPENDS StringToFloatPointTest anotherDummyTest)
+add_custom_target(check
+    COMMAND ${CMAKE_CTEST_COMMAND}
+    DEPENDS StringToFloatPointTest anotherDummyTest)
+
+add_custom_target(unit
+    COMMAND ${CMAKE_BINARY_DIR}/test/StringToFloatPointTest
+    DEPENDS StringToFloatPointTest)
 
 add_test(UnitTest StringToFloatPointTest)
 add_test(PerfTest anotherDummyTest)
