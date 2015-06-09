@@ -9,8 +9,10 @@ using namespace ::testing;
 
 namespace lexical_cache {
 
-TEST(StringToFloatPointTest, testCast)
+TEST(StringToRealTest, testCast)
 {
+    //Cache<int> wrong_cache;
+    //Cache<float> cache1;
     Cache<double> cache;
     const auto x = "1.0";
     EXPECT_FLOAT_EQ(1.0, cache.cast(x));
@@ -18,7 +20,11 @@ TEST(StringToFloatPointTest, testCast)
     const auto d = randomReal();
     const std::string y = realToString(d);
     // TODO: use almostEqual
-    EXPECT_DOUBLE_EQ(d, cache.cast(y));
+    EXPECT_FLOAT_EQ(d, cache.cast(y));
+}
+
+TEST(StringToRealTest, testCacheFull)
+{
 }
 
 }
