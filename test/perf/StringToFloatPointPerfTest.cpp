@@ -1,4 +1,4 @@
-#include "TestUtils.h"
+#include <TestUtils.h>
 
 #include <lexical_cache/lexical_cache.h>
 
@@ -9,22 +9,7 @@ using namespace ::testing;
 
 namespace lexical_cache {
 
-TEST(StringToRealTest, DISABLED_testCast)
-{
-    //Cache<int> wrong_cache;
-    //Cache<float> cache1;
-    Cache<double> cache;
-    const auto x = "1.0";
-    EXPECT_FLOAT_EQ(1.0, cache.castToReal(x));
-
-    const auto d = randomReal();
-    const std::string y = realToString(d);
-    // TODO: use almostEqual
-    EXPECT_FLOAT_EQ(d, cache.castToReal(y));
-}
-
-
-TEST(StringToRealTest, testCacheFull)
+TEST(StringToRealPerfTest, testCacheHitPerformance)
 {
     constexpr int cacheSize = 4;
     Cache<double, cacheSize> cache;
@@ -48,9 +33,20 @@ TEST(StringToRealTest, testCacheFull)
     cache.castToReal("4.0");
     EXPECT_EQ(cacheSize, cache.size(String2Real)) << cache;
 
+    int iteration = 1000*1000;
+    auto start = std::chrono::system_clock::now();
+    for (int i = 0; i < iteration; ++i) {
+        for (const auto& p : testPairs) {
+            auto d = cache.castToReal(p.first);
+            //EXPECT_FLOAT_EQ(d, p.second);
+        }
+    }
+    auto finish = std::chrono::system_clock::now();
+    auto duration = finish - start;
+
     // cache miss 
-    cache.castToReal("5.2");
-    EXPECT_EQ(cacheSize, cache.size(String2Real)) << cache;
+//    cache.castToReal("5.2");
+//    EXPECT_EQ(cacheSize, cache.size(String2Real)) << cache;
 }
 
 }
