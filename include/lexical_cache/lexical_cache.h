@@ -1,7 +1,12 @@
 #ifndef LEXICAL_CACHE_H_INCLUDED
 #define LEXICAL_CACHE_H_INCLUDED
 
+#include "hash_functions.h"
+
+#include <sparsehash/dense_hash_map>
+
 #include <unordered_map>
+#include <map>
 #include <string>
 #include <type_traits>
 #include <chrono>
@@ -40,7 +45,7 @@
 // the two caches have to be the same, unless use 2 container
 // q1: do i have cache line efficiency here:
 // not sure, double and time will be fixed size, but string can be of
-// any size because of small string optimization
+// any size because of small string optimization, so have to use char[]
 // q2: what about thread safety? not much gain here
 //
 // futher potential improvements:
@@ -78,6 +83,12 @@ template <
 class Cache
 {
 public:
+    Cache()
+    {
+        m_strToReal.set_empty_key("");
+        m_strToReal.set_deleted_key("NULL");
+    }
+
     ~Cache() = default;
 
     // all copy and move operations using default
@@ -93,7 +104,14 @@ public:
 
     double missRatio() const
     {
+        //std::cout<<"m: "<<m_cacheMiss<<", h: "<<m_cacheHit<<std::endl;
         return static_cast<double>(m_cacheMiss) / (m_cacheHit + m_cacheMiss)*100;
+    }
+
+    void resetStats()
+    {
+        m_cacheMiss = 0.0;
+        m_cacheHit = 0.0;
     }
 
     friend std::ostream& operator << (std::ostream& os, const Cache& cache)
@@ -121,17 +139,21 @@ public:
 protected:
     // only called when str is not in internal cache
     void updateCache(const std::string& str, const real_type& fp);
+    void updateCache(const real_type& fp, const std::string& str);
 
 private:
-    // TODO: may be store a pointer to string is more efficient?
     using ValueCache
-        = std::array<std::tuple<real_type, timestamp_type, std::string>,
+        = std::array<std::tuple<real_type, timestamp_type, const char*>,
                      cache_size_N>;
 
     ValueCache                            m_reals;
     ValueCache                            m_strings;
 
-    std::unordered_map<std::string, int>  m_strToReal;
+    google::dense_hash_map<std::string, int> m_strToReal;
+    //std::unordered_map<std::string, int>  m_strToReal;
+    
+    // test showed searching in unordered map is always faster than sorted
+    // arrary
     std::unordered_map<real_type, int>    m_realToStr;
 
     timestamp_type                        m_latestTime = 100;
@@ -148,6 +170,9 @@ template <
 real_type
 Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
 {
+    // not much advantage compared with stod, even with 100% cache hit, which
+    // means I need a faster hash map
+    // need to test with boost::lexical_cast
     auto existing = m_strToReal.find(str);
     if (existing != m_strToReal.end()) {
         ++m_cacheHit;
@@ -182,7 +207,17 @@ template <
 std::string
 Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
 {
-    return "";
+    auto existing = m_realToStr.find(real);
+    if (existing != m_realToStr.end()) {
+        ++m_cacheHit;
+        return std::get<0>(m_strings[existing->second]);
+    }
+
+    auto str = std::to_string(real);
+
+    // kick out the oldest cache
+    this->updateCache(real, str);
+    return str;
 }
 
 template <
@@ -205,18 +240,16 @@ Cache<real_type, cache_size_N, enable>::updateCache(
                     return std::get<1>(lhs) < std::get<1>(rhs);
                 }
                 );
-        assert(oldest != m_reals.end());
-        //auto temp = std::make_tuple(fp, updateTimestamp(m_latestTime), str);
-        //std::swap(temp, *oldest);
+        //assert(oldest != m_reals.end());
         
         // copy the old str
         const auto oldStr = std::get<2>(*oldest);
         m_strToReal.erase(oldStr);
 
-        const auto& oldTime = std::get<1>(*oldest);
-        std::cout<< "oldest found: " << oldStr
-            << ", time: "<<oldTime
-            <<std::endl;
+//        const auto& oldTime = std::get<1>(*oldest);
+//        std::cout<< "oldest found: " << oldStr
+//            << ", time: "<<oldTime
+//            <<std::endl;
 
         // NOTE: will not work if container is not an arrary or vector
         index = oldest - m_reals.begin();
@@ -226,10 +259,49 @@ Cache<real_type, cache_size_N, enable>::updateCache(
     }
 
     // when I know there's no such element, is [] more efficient or emplace?
-    m_strToReal.emplace(str, index);
+    m_strToReal[str] = index;
     std::get<0>(m_reals[index]) = fp;
     std::get<1>(m_reals[index]) = updateTimestamp(m_latestTime);
-    std::get<2>(m_reals[index]) = str;
+    std::get<2>(m_reals[index]) = str.c_str();
+    ++m_cacheMiss;
+}
+
+template <
+    typename real_type,
+    int cache_size_N,
+    typename enable
+    >
+void
+Cache<real_type, cache_size_N, enable>::updateCache(
+        const real_type& fp,
+        const std::string& str)
+{
+    auto index = 0;
+    if (m_realToStr.size() >= cache_size_N) {
+        auto oldest = std::min_element(
+                m_strings.begin(),
+                m_strings.end(),
+                [](const typename ValueCache::value_type& lhs,
+                   const typename ValueCache::value_type& rhs) {
+                    return std::get<1>(lhs) < std::get<1>(rhs);
+                }
+                );
+        
+        const auto old = std::get<0>(*oldest);
+        m_realToStr.erase(old);
+
+        // NOTE: will not work if container is not an array or vector
+        index = oldest - m_strings.begin();
+    }
+    else {
+        index = m_realToStr.size();
+    }
+
+    // when I know there's no such element, is [] more efficient or emplace?
+    m_realToStr[fp] = index;
+    std::get<0>(m_strings[index]) = fp;
+    std::get<1>(m_strings[index]) = updateTimestamp(m_latestTime);
+    std::get<2>(m_strings[index]) = str.c_str();
     ++m_cacheMiss;
 }
 
