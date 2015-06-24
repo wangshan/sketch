@@ -73,6 +73,21 @@ enum CacheType {
     Both,
 };
 
+struct CstrHash {                                                                  
+    inline size_t operator()(const char *s) const {                             
+        size_t hash = 1;                                                        
+        if (!s)                                                                 
+            return 0;                                                           
+        for (; *s; ++s)                                                         
+            hash = hash * 5 + *s;                                               
+        return hash;                                                            
+    }                                                                           
+    inline bool operator()(const char *s1, const char *s2) const {              
+        if (!s1 || !s2)                                                         
+            return s1 == s2;                                                    
+        return strcmp(s1, s2) == 0;                                             
+    }                                                                           
+};
 
 template <
     typename real_type,
@@ -83,6 +98,19 @@ template <
 class Cache
 {
 public:
+    struct CachedItem
+    {
+        CachedItem()
+            : m_real(NAN)
+            , m_time(0)
+        {
+            memset(m_str, 0, 128);
+        }
+        char m_str[128];
+        real_type m_real;
+        timestamp_type m_time;
+    };
+
     struct CachedReal
     {
         CachedReal()
@@ -173,11 +201,10 @@ protected:
     // only called when str is not in internal cache
     void updateCache(const std::string& str, const real_type& fp);
     void updateCache2(const real_type& fp, const std::string& str);
+    real_type updateCache3(const std::string& str);
 
 private:
-    using ValueCache
-        = std::array<std::tuple<real_type, timestamp_type, const char*>,
-                     cache_size_N>;
+    using ValueCache = std::array<CachedItem, cache_size_N>;
 
     ValueCache                            m_reals;
     ValueCache                            m_strings;
@@ -185,7 +212,8 @@ private:
     // test shows searching in unordered map is faster than a sorted array
     //google::dense_hash_map<std::string, CachedReal> m_strToReal;
 
-    std::unordered_map<std::string, CachedReal>  m_strToReal;
+    std::unordered_map<const char*, int, CstrHash, CstrHash>  m_strToReal;
+    //std::unordered_map<std::string, CachedReal>  m_strToReal;
     std::unordered_map<real_type, CachedString>  m_realToStr;
 
     timestamp_type                        m_latestTime = 100;
@@ -205,12 +233,13 @@ Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
     // not much advantage compared with stod, even with 100% cache hit, which
     // means I need a faster hash map
     // need to test with boost::lexical_cast
-    auto existing = m_strToReal.find(str);
+    auto existing = m_strToReal.find(str.c_str());
     if (existing != m_strToReal.end()) {
         ++m_cacheHit;
-        return existing->second.m_real;
+        return m_reals[existing->second].m_real;
     }
 
+    /*
     // TODO: can move the is_same check to a bool parameter of the function,
     // then let overload chose stod/l to call
     real_type fp(0.0);
@@ -225,10 +254,11 @@ Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
     else {
         fp = std::stold(str);
     }
+    */
 
     // kick out the oldest cache
-    this->updateCache(str, fp);
-    return fp;
+    return this->updateCache3(str);
+    //return fp;
 }
 
 template <
@@ -310,6 +340,49 @@ Cache<real_type, cache_size_N, enable>::updateCache2(
     m_realToStr.emplace(
             fp, CachedString(str, updateTimestamp(m_latestTime))
             );
+}
+
+template <
+    typename real_type,
+    int cache_size_N,
+    typename enable
+    >
+real_type
+Cache<real_type, cache_size_N, enable>::updateCache3(
+        const std::string& str)
+{
+    ++m_cacheMiss;
+//    static bool firstTime = true;
+//    if (!firstTime)
+//        return;
+
+    auto index = 0;
+    if (m_strToReal.size() >= cache_size_N) {
+        auto oldest = std::min_element(
+                m_reals.begin(),
+                m_reals.end(),
+                [](const auto& lhs, const auto& rhs) {
+                    return lhs.m_time < rhs.m_time; }
+                );
+        assert(oldest != m_reals.end());
+        
+        index = oldest - m_reals.begin();
+        m_strToReal.erase(oldest->m_str);
+//        firstTime = false;
+    }
+    else {
+        index = m_strToReal.size();
+    }
+
+    strcpy(m_reals[index].m_str, str.c_str());
+    m_reals[index].m_real = std::stod(str);
+    m_reals[index].m_time = updateTimestamp(m_latestTime);
+
+    m_strToReal.emplace(
+            str.c_str(), index
+            );
+
+    return m_reals[index].m_real;
 }
 
 template <

@@ -200,7 +200,7 @@ TEST_P(StringToRealPerfTest, testCacheMissPerformance)
     constexpr int iteration = 1000*1000;
 
     // note: the final miss ratio is much higher due to the shuffle
-    auto cache_hit_ratio = 0.8;
+    auto cache_hit_ratio = 0.5;
 
     auto testSequence = this->generateTestSequence(iteration, cache_hit_ratio);
     m_cache.resetStats();
