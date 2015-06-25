@@ -75,17 +75,29 @@ enum CacheType {
 
 struct CstrHash {                                                                  
     inline size_t operator()(const char *s) const {                             
-        size_t hash = 1;                                                        
-        if (!s)                                                                 
+        if (!s) {
             return 0;                                                           
-        for (; *s; ++s)                                                         
+        }
+        size_t hash = 1;                                                        
+        for (; *s; ++s) {
             hash = hash * 5 + *s;                                               
+        }
+//        auto count = strlen(s);
+//        auto n = (count + 3)/4;
+//        switch (count % 4) {
+//            case 0: do { hash = hash * 5 + *s; ++s;
+//            case 3: hash = hash * 5 + *s; ++s;
+//            case 2: hash = hash * 5 + *s; ++s;
+//            case 1: hash = hash * 5 + *s; ++s;
+//                    } while (--n > 0);
+//        }
         return hash;                                                            
     }                                                                           
     inline bool operator()(const char *s1, const char *s2) const {              
-        if (!s1 || !s2)                                                         
+        if (!s1 || !s2) {
             return s1 == s2;                                                    
-        return strcmp(s1, s2) == 0;                                             
+        }
+        return ::strcmp(s1, s2) == 0;
     }                                                                           
 };
 
@@ -230,6 +242,7 @@ template <
 real_type
 Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
 {
+    // TODO: if str size > 128 return stox immediately
     // not much advantage compared with stod, even with 100% cache hit, which
     // means I need a faster hash map
     // need to test with boost::lexical_cast
@@ -374,15 +387,28 @@ Cache<real_type, cache_size_N, enable>::updateCache3(
         index = m_strToReal.size();
     }
 
+    real_type fp(0.0);
+    if (std::is_same<float,
+            typename std::remove_cv<real_type>::type>::value) {
+        fp = std::stof(str);
+    }
+    else if (std::is_same<double,
+            typename std::remove_cv<real_type>::type>::value) {
+        fp = std::stod(str);
+    }
+    else {
+        fp = std::stold(str);
+    }
+
     strcpy(m_reals[index].m_str, str.c_str());
-    m_reals[index].m_real = std::stod(str);
+    m_reals[index].m_real = fp;
     m_reals[index].m_time = updateTimestamp(m_latestTime);
 
     m_strToReal.emplace(
             str.c_str(), index
             );
 
-    return m_reals[index].m_real;
+    return fp;
 }
 
 template <
