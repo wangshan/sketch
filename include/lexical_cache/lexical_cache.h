@@ -118,6 +118,7 @@ public:
         {
             memset(m_str, 0, 128);
         }
+
         char m_str[128];
         real_type m_real;
         timestamp_type m_time;
@@ -170,7 +171,7 @@ public:
     // a const function may not be a good idea, it means the cache won't be
     // updated
     real_type castToReal(const std::string& str);
-    std::string castToStr(const real_type& real);
+    const char* castToStr(const real_type& real);
 
     size_t size(const CacheType& t=Both) const;
     bool   empty(const CacheType& t=Both) const;
@@ -211,9 +212,9 @@ public:
 
 protected:
     // only called when str is not in internal cache
-    void updateCache(const std::string& str, const real_type& fp);
-    void updateCache2(const real_type& fp, const std::string& str);
-    real_type updateCache3(const std::string& str);
+    real_type updateCache(const std::string& str); //370ns
+    const char* updateCache2(const real_type& fp); //
+    std::string updateCache3(const real_type& fp); //32ns
 
 private:
     using ValueCache = std::array<CachedItem, cache_size_N>;
@@ -222,11 +223,8 @@ private:
     ValueCache                            m_strings;
 
     // test shows searching in unordered map is faster than a sorted array
-    //google::dense_hash_map<std::string, CachedReal> m_strToReal;
-
     std::unordered_map<const char*, int, CstrHash, CstrHash>  m_strToReal;
-    //std::unordered_map<std::string, CachedReal>  m_strToReal;
-    std::unordered_map<real_type, CachedString>  m_realToStr;
+    std::unordered_map<real_type, int>    m_realToStr;
 
     timestamp_type                        m_latestTime = 100;
     bool                                  m_enableStats = true;
@@ -252,26 +250,26 @@ Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
         return m_reals[existing->second].m_real;
     }
 
-    /*
-    // TODO: can move the is_same check to a bool parameter of the function,
-    // then let overload chose stod/l to call
-    real_type fp(0.0);
-    if (std::is_same<float,
-            typename std::remove_cv<real_type>::type>::value) {
-        fp = std::stof(str);
-    }
-    else if (std::is_same<double,
-            typename std::remove_cv<real_type>::type>::value) {
-        fp = std::stod(str);
-    }
-    else {
-        fp = std::stold(str);
-    }
-    */
+    return this->updateCache(str);
+}
 
-    // kick out the oldest cache
-    return this->updateCache3(str);
-    //return fp;
+template <
+    typename real_type,
+    int cache_size_N,
+    typename enable
+    >
+const char*
+Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
+{
+    // TODO: have to use std::find_if
+    auto existing = m_realToStr.find(real);
+    if (existing != m_realToStr.end()) {
+        ++m_cacheHit;
+        return m_strings[existing->second].m_str;
+        //return existing->second.m_str;
+    }
+
+    return this->updateCache2(real);
 }
 
 template <
@@ -280,18 +278,26 @@ template <
     typename enable
     >
 std::string
-Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
+Cache<real_type, cache_size_N, enable>::updateCache3(const real_type& fp)
 {
-    auto existing = m_realToStr.find(real);
-    if (existing != m_realToStr.end()) {
-        ++m_cacheHit;
-        return existing->second.m_str;
+    ++m_cacheMiss;
+    if (m_realToStr.size() >= cache_size_N) {
+        auto oldest = std::min_element(
+                m_realToStr.begin(),
+                m_realToStr.end(),
+                [](const auto& lhs, const auto& rhs) {
+                    return lhs.m_time < rhs.m_time; }
+                );
+        
+        m_realToStr.erase(oldest);
     }
 
-    auto str = std::to_string(real);
+    auto str = std::to_string(fp);
 
-    // kick out the oldest cache
-    this->updateCache2(real, str);
+    m_realToStr.emplace(
+            fp, CachedString(str, updateTimestamp(m_latestTime))
+            );
+
     return str;
 }
 
@@ -300,74 +306,10 @@ template <
     int cache_size_N,
     typename enable
     >
-void
-Cache<real_type, cache_size_N, enable>::updateCache(
-        const std::string& str,
-        const real_type& fp)
-{
-    ++m_cacheMiss;
-//    static bool firstTime = true;
-//    if (!firstTime)
-//        return;
-    if (m_strToReal.size() >= cache_size_N) {
-        auto oldest = std::min_element(
-                m_strToReal.begin(),
-                m_strToReal.end(),
-                [](const auto& lhs, const auto& rhs) {
-                    return lhs.second.m_time < rhs.second.m_time; }
-                );
-        //assert(oldest != m_reals.end());
-        
-        m_strToReal.erase(oldest);
-//        firstTime = false;
-    }
-
-    // when I know there's no such element, is [] more efficient or emplace?
-    m_strToReal.emplace(
-            str, CachedReal(fp, updateTimestamp(m_latestTime))
-            );
-}
-
-template <
-    typename real_type,
-    int cache_size_N,
-    typename enable
-    >
-void
-Cache<real_type, cache_size_N, enable>::updateCache2(
-        const real_type& fp,
-        const std::string& str)
-{
-    ++m_cacheMiss;
-    if (m_realToStr.size() >= cache_size_N) {
-        auto oldest = std::min_element(
-                m_realToStr.begin(),
-                m_realToStr.end(),
-                [](const auto& lhs, const auto& rhs) {
-                    return lhs.second.m_time < rhs.second.m_time; }
-                );
-        
-        m_realToStr.erase(oldest);
-    }
-
-    m_realToStr.emplace(
-            fp, CachedString(str, updateTimestamp(m_latestTime))
-            );
-}
-
-template <
-    typename real_type,
-    int cache_size_N,
-    typename enable
-    >
 real_type
-Cache<real_type, cache_size_N, enable>::updateCache3(
-        const std::string& str)
+Cache<real_type, cache_size_N, enable>::updateCache(const std::string& str)
 {
     ++m_cacheMiss;
-//    static bool firstTime = true;
-//    if (!firstTime)
-//        return;
 
     auto index = 0;
     if (m_strToReal.size() >= cache_size_N) {
@@ -381,7 +323,6 @@ Cache<real_type, cache_size_N, enable>::updateCache3(
         
         index = oldest - m_reals.begin();
         m_strToReal.erase(oldest->m_str);
-//        firstTime = false;
     }
     else {
         index = m_strToReal.size();
@@ -405,11 +346,49 @@ Cache<real_type, cache_size_N, enable>::updateCache3(
     m_reals[index].m_time = updateTimestamp(m_latestTime);
 
     m_strToReal.emplace(
-            str.c_str(), index
+            m_reals[index].m_str, index
             );
 
     return fp;
 }
+
+template <
+    typename real_type,
+    int cache_size_N,
+    typename enable
+    >
+const char*
+Cache<real_type, cache_size_N, enable>::updateCache2(const real_type& fp)
+{
+    ++m_cacheMiss;
+
+    auto index = 0;
+    if (m_realToStr.size() >= cache_size_N) {
+        auto oldest = std::min_element(
+                m_strings.begin(),
+                m_strings.end(),
+                [](const auto& lhs, const auto& rhs) {
+                    return lhs.m_time < rhs.m_time; }
+                );
+        
+        index = oldest - m_strings.begin();
+        m_realToStr.erase(oldest->m_real);
+    }
+    else {
+        index = m_realToStr.size();
+    }
+
+    auto str = std::to_string(fp);
+
+    strcpy(m_strings[index].m_str, str.c_str());
+    m_strings[index].m_real = fp;
+    m_strings[index].m_time = updateTimestamp(m_latestTime);
+
+    m_realToStr.emplace(fp, index);
+
+    return m_strings[index].m_str;
+}
+
 
 template <
     typename real_type,
