@@ -15,6 +15,14 @@
 #include <iostream>
 #include <assert.h>
 
+// FIXME:
+// fix duffy device
+// use almostEq
+// cacheline padding for CachedItem, so len of str needs to be a compile time const
+// catch exception on stod
+// in castToReal if string is too long, throw exception, so need to define a exception type 
+// test for 50% cache hit
+
 // TODO: sort by time, so I can kick out the oldest one
 // only write need to know who's the oldest and only when cache is full
 // both write and read will update time
@@ -38,15 +46,13 @@
 // the two caches have to be the same, unless use 2 container
 //
 // solution C:
-// a bespoke structure
 // std::array<struct { string, double, time }>
-// do a binary search of either string or double when reading,
+// search for either string or double when reading,
 // when overflow, heaptify by time and then evict heap root
-// the two caches have to be the same, unless use 2 container
+// the two caches have to be the same, unless use 2 containers
 // q1: do i have cache line efficiency here:
 // not sure, double and time will be fixed size, but string can be of
 // any size because of small string optimization, so have to use char[]
-// q2: what about thread safety? not much gain here
 //
 // futher potential improvements:
 // 1. do i have to construct a new string every time? can I reuse the cached 
@@ -116,10 +122,10 @@ public:
             : m_real(NAN)
             , m_time(0)
         {
-            memset(m_str, 0, 128);
+            memset(m_str, 0, 64);
         }
 
-        char m_str[128];
+        char m_str[64];
         real_type m_real;
         timestamp_type m_time;
     };
@@ -213,8 +219,8 @@ public:
 protected:
     // only called when str is not in internal cache
     real_type updateCache(const std::string& str); //370ns
-    const char* updateCache2(const real_type& fp); //
-    std::string updateCache3(const real_type& fp); //32ns
+    const char* updateCache2(const real_type& fp); //600ns
+    std::string updateCache3(const real_type& fp); 
 
 private:
     using ValueCache = std::array<CachedItem, cache_size_N>;
@@ -240,7 +246,11 @@ template <
 real_type
 Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
 {
-    // TODO: if str size > 128 return stox immediately
+    // TODO: if str size > 64 return stox immediately
+    if (str.size() >= 64) {
+        return std::stod(str);
+    }
+    
     // not much advantage compared with stod, even with 100% cache hit, which
     // means I need a faster hash map
     // need to test with boost::lexical_cast
@@ -261,7 +271,7 @@ template <
 const char*
 Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
 {
-    // TODO: have to use std::find_if
+    // TODO: have to use std::find_if and almostEq
     auto existing = m_realToStr.find(real);
     if (existing != m_realToStr.end()) {
         ++m_cacheHit;
@@ -378,9 +388,7 @@ Cache<real_type, cache_size_N, enable>::updateCache2(const real_type& fp)
         index = m_realToStr.size();
     }
 
-    auto str = std::to_string(fp);
-
-    strcpy(m_strings[index].m_str, str.c_str());
+    ::sprintf(m_strings[index].m_str, "%f", fp);
     m_strings[index].m_real = fp;
     m_strings[index].m_time = updateTimestamp(m_latestTime);
 

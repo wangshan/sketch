@@ -214,7 +214,7 @@ TEST_P(StringToRealPerfTest, testCastRealToString)
     constexpr int iteration = 1000*1000;
 
     // note: the final miss ratio is much higher due to the shuffle
-    auto cache_hit_ratio = 0.1;
+    auto cache_hit_ratio = 1.0;
 
     auto testSequence = this->generateTestSequence2(iteration, cache_hit_ratio);
     m_cache.resetStats();
