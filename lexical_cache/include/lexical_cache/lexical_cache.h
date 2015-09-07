@@ -16,7 +16,6 @@
 #include <assert.h>
 
 // FIXME:
-// fix duffy device
 // use almostEq
 // cacheline padding for CachedItem, so len of str needs to be a compile time const
 // catch exception on stod
@@ -79,26 +78,29 @@ enum CacheType {
     Both,
 };
 
-struct CstrHash {                                                                  
+struct CstrHash
+{                                                                  
     inline size_t operator()(const char *s) const {                             
         if (!s) {
             return 0;                                                           
         }
         size_t hash = 1;                                                        
-        for (; *s; ++s) {
-            hash = hash * 5 + *s;                                               
-        }
-//        auto count = strlen(s);
-//        auto n = (count + 3)/4;
-//        switch (count % 4) {
-//            case 0: do { hash = hash * 5 + *s; ++s;
-//            case 3: hash = hash * 5 + *s; ++s;
-//            case 2: hash = hash * 5 + *s; ++s;
-//            case 1: hash = hash * 5 + *s; ++s;
-//                    } while (--n > 0);
+        // the below loop is the equivalent functionality of the duffy device
+//        for (; *s; ++s) {
+//            hash = hash * 5 + *s;                                               
 //        }
+        auto count = strlen(s);
+        auto n = (count + 3)/4;
+        switch (count % 4) {
+            case 0: do { hash = hash * 5 + *s; ++s;
+            case 3: hash = hash * 5 + *s; ++s;
+            case 2: hash = hash * 5 + *s; ++s;
+            case 1: hash = hash * 5 + *s; ++s;
+                    } while (--n > 0);
+        }
         return hash;                                                            
     }                                                                           
+
     inline bool operator()(const char *s1, const char *s2) const {              
         if (!s1 || !s2) {
             return s1 == s2;                                                    
