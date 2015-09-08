@@ -4,6 +4,7 @@
 #include "hash_functions.h"
 
 #include <sparsehash/dense_hash_map>
+#include <comparefp/comparefp.h>
 
 #include <unordered_map>
 #include <map>
@@ -16,13 +17,12 @@
 #include <assert.h>
 
 // FIXME:
-// use almostEq
 // cacheline padding for CachedItem, so len of str needs to be a compile time const
 // catch exception on stod
 // in castToReal if string is too long, throw exception, so need to define a exception type 
 // test for 50% cache hit
 
-// TODO: sort by time, so I can kick out the oldest one
+// NOTES: sort by time, so I can kick out the oldest one
 // only write need to know who's the oldest and only when cache is full
 // both write and read will update time
 // time can be a int sequence, every time a cache is read, it's time
@@ -274,7 +274,9 @@ const char*
 Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
 {
     // TODO: have to use std::find_if and almostEq
-    auto existing = m_realToStr.find(real);
+    auto existing = std::find_if(m_realToStr.begin(), m_realToStr.end(),
+            [&real](const auto& item) { return useful::almostEqual(item.first, real);
+            });
     if (existing != m_realToStr.end()) {
         ++m_cacheHit;
         return m_strings[existing->second].m_str;
