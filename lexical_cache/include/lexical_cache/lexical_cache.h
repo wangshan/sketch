@@ -16,12 +16,6 @@
 #include <iostream>
 #include <assert.h>
 
-// FIXME:
-// cacheline padding for CachedItem, so len of str needs to be a compile time const
-// catch exception on stod
-// in castToReal if string is too long, throw exception, so need to define a exception type 
-// test for 50% cache hit
-
 // NOTES: sort by time, so I can kick out the oldest one
 // only write need to know who's the oldest and only when cache is full
 // both write and read will update time
@@ -67,6 +61,7 @@ namespace lexical_cache
 
 using timestamp_type = int;
 
+// TODO: handle wrap
 inline timestamp_type updateTimestamp(timestamp_type& t)
 {
     return ++t;
@@ -79,12 +74,12 @@ enum CacheType {
 };
 
 struct CstrHash
-{                                                                  
-    inline size_t operator()(const char *s) const {                             
+{
+    inline size_t operator() (const char* s) const {
         if (!s) {
-            return 0;                                                           
+            return 0;
         }
-        size_t hash = 1;                                                        
+        size_t hash = 1;
         // the below loop is the equivalent functionality of the duffy device
 //        for (; *s; ++s) {
 //            hash = hash * 5 + *s;                                               
@@ -96,17 +91,17 @@ struct CstrHash
             case 3: hash = hash * 5 + *s; ++s;
             case 2: hash = hash * 5 + *s; ++s;
             case 1: hash = hash * 5 + *s; ++s;
-                    } while (--n > 0);
+            } while (--n > 0);
         }
-        return hash;                                                            
-    }                                                                           
+        return hash;
+    }
 
-    inline bool operator()(const char *s1, const char *s2) const {              
+    inline bool operator() (const char* s1, const char* s2) const {
         if (!s1 || !s2) {
-            return s1 == s2;                                                    
+            return s1 == s2;
         }
         return ::strcmp(s1, s2) == 0;
-    }                                                                           
+    }
 };
 
 template <
@@ -124,48 +119,12 @@ public:
             : m_real(NAN)
             , m_time(0)
         {
-            memset(m_str, 0, 64);
+            ::memset(m_str, 0, 64);
         }
 
         char m_str[64];
         real_type m_real;
         timestamp_type m_time;
-    };
-
-    struct CachedReal
-    {
-        CachedReal()
-            : m_real(NAN)
-            , m_time(0)
-        {
-        }
-
-        CachedReal(real_type r, timestamp_type t)
-            : m_real(r)
-            , m_time(t)
-        {
-        }
-
-        real_type       m_real;
-        timestamp_type  m_time;
-    };
-
-    struct CachedString
-    {
-        CachedString()
-            : m_str("")
-            , m_time(0)
-        {
-        }
-
-        CachedString(const std::string& s, timestamp_type t)
-            : m_str(s)
-            , m_time(t)
-        {
-        }
-
-        std::string     m_str;
-        timestamp_type  m_time;
     };
 
     Cache()
@@ -176,8 +135,6 @@ public:
 
     // all copy and move operations using default
 
-    // a const function may not be a good idea, it means the cache won't be
-    // updated
     real_type castToReal(const std::string& str);
     const char* castToStr(const real_type& real);
 
@@ -198,19 +155,32 @@ public:
 
     friend std::ostream& operator << (std::ostream& os, const Cache& cache)
     {
-//        os << "Real cached: \n";
-//        for (const auto& r : cache.m_reals) {
-//            os << "real: " << std::get<0>(r)
-//               << ", timestamp: " << std::get<1>(r)
-//               << ", string: \"" << std::get<2>(r) << "\""
-//               << "\n";
-//        }
-//        os << "String2Real index: \n";
-//        for (const auto& r : cache.m_strToReal) {
-//            os << "string: \"" << r.first << "\""
-//               << ", index: " << r.second
-//               << "\n";
-//        }
+        os << "Real cached: \n";
+        for (const auto& r : cache.m_reals) {
+            os << "real: " << r.m_real
+               << ", timestamp: " << r.m_time 
+               << ", string: \"" << r.m_str << "\""
+               << "\n";
+        }
+        os << "String2Real index: \n";
+        for (const auto& r : cache.m_strToReal) {
+            os << "string: \"" << r.first << "\""
+               << ", index: " << r.second
+               << "\n";
+        }
+        os << "String cached: \n";
+        for (const auto& r : cache.m_strings) {
+            os << "real: " << r.m_real
+               << ", timestamp: " << r.m_time 
+               << ", string: \"" << r.m_str << "\""
+               << "\n";
+        }
+        os << "String2Real index: \n";
+        for (const auto& r : cache.m_realToStr) {
+            os << "real: \"" << r.first << "\""
+               << ", index: " << r.second
+               << "\n";
+        }
         if (cache.m_enableStats) {
             os << "cache miss ratio: " << cache.missRatio()
                << "%\n";
@@ -220,9 +190,8 @@ public:
 
 protected:
     // only called when str is not in internal cache
-    real_type updateCache(const std::string& str); //370ns
-    const char* updateCache2(const real_type& fp); //600ns
-    std::string updateCache3(const real_type& fp); 
+    real_type updateStrCache(const std::string& str); //370ns
+    const char* updateRealCache(const real_type& fp); //600ns
 
 private:
     using ValueCache = std::array<CachedItem, cache_size_N>;
@@ -231,7 +200,8 @@ private:
     ValueCache                            m_strings;
 
     // test shows searching in unordered map is faster than a sorted array
-    std::unordered_map<const char*, int, CstrHash, CstrHash>  m_strToReal;
+    std::unordered_map<const char*, int,
+        CstrHash, CstrHash>               m_strToReal;
     std::unordered_map<real_type, int>    m_realToStr;
 
     timestamp_type                        m_latestTime = 100;
@@ -248,9 +218,11 @@ template <
 real_type
 Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
 {
-    // TODO: if str size > 64 return stox immediately
+    // NOTE: if str size > max_str_len, throw exception
     if (str.size() >= 64) {
-        return std::stod(str);
+        throw std::range_error(
+                std::string("string length is more than max_str_len, \"") + str
+                + "\"");
     }
     
     // not much advantage compared with stod, even with 100% cache hit, which
@@ -262,7 +234,7 @@ Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
         return m_reals[existing->second].m_real;
     }
 
-    return this->updateCache(str);
+    return this->updateStrCache(str);
 }
 
 template <
@@ -273,47 +245,18 @@ template <
 const char*
 Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
 {
-    // TODO: have to use std::find_if and almostEq
     auto existing = std::find_if(m_realToStr.begin(), m_realToStr.end(),
-            [&real](const auto& item) { return useful::almostEqual(item.first, real);
+            [&real](const auto& item) {
+                return useful::almostEqual(item.first, real);
             });
     if (existing != m_realToStr.end()) {
         ++m_cacheHit;
         return m_strings[existing->second].m_str;
-        //return existing->second.m_str;
     }
 
-    return this->updateCache2(real);
+    return this->updateRealCache(real);
 }
 
-template <
-    typename real_type,
-    int cache_size_N,
-    typename enable
-    >
-std::string
-Cache<real_type, cache_size_N, enable>::updateCache3(const real_type& fp)
-{
-    ++m_cacheMiss;
-    if (m_realToStr.size() >= cache_size_N) {
-        auto oldest = std::min_element(
-                m_realToStr.begin(),
-                m_realToStr.end(),
-                [](const auto& lhs, const auto& rhs) {
-                    return lhs.m_time < rhs.m_time; }
-                );
-        
-        m_realToStr.erase(oldest);
-    }
-
-    auto str = std::to_string(fp);
-
-    m_realToStr.emplace(
-            fp, CachedString(str, updateTimestamp(m_latestTime))
-            );
-
-    return str;
-}
 
 template <
     typename real_type,
@@ -321,7 +264,7 @@ template <
     typename enable
     >
 real_type
-Cache<real_type, cache_size_N, enable>::updateCache(const std::string& str)
+Cache<real_type, cache_size_N, enable>::updateStrCache(const std::string& str)
 {
     ++m_cacheMiss;
 
@@ -355,7 +298,7 @@ Cache<real_type, cache_size_N, enable>::updateCache(const std::string& str)
         fp = std::stold(str);
     }
 
-    strcpy(m_reals[index].m_str, str.c_str());
+    ::strcpy(m_reals[index].m_str, str.c_str());
     m_reals[index].m_real = fp;
     m_reals[index].m_time = updateTimestamp(m_latestTime);
 
@@ -372,7 +315,7 @@ template <
     typename enable
     >
 const char*
-Cache<real_type, cache_size_N, enable>::updateCache2(const real_type& fp)
+Cache<real_type, cache_size_N, enable>::updateRealCache(const real_type& fp)
 {
     ++m_cacheMiss;
 
@@ -392,6 +335,7 @@ Cache<real_type, cache_size_N, enable>::updateCache2(const real_type& fp)
         index = m_realToStr.size();
     }
 
+    // FIXME: won't work if m_str is fixed sized
     ::sprintf(m_strings[index].m_str, "%f", fp);
     m_strings[index].m_real = fp;
     m_strings[index].m_time = updateTimestamp(m_latestTime);
