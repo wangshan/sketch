@@ -119,10 +119,9 @@ public:
             : m_real(NAN)
             , m_time(0)
         {
-            ::memset(m_str, 0, 64);
         }
 
-        char m_str[64];
+        std::string m_str;
         real_type m_real;
         timestamp_type m_time;
     };
@@ -218,13 +217,6 @@ template <
 real_type
 Cache<real_type, cache_size_N, enable>::castToReal(const std::string& str)
 {
-    // NOTE: if str size > max_str_len, throw exception
-    if (str.size() >= 64) {
-        throw std::range_error(
-                std::string("string length is more than max_str_len, \"") + str
-                + "\"");
-    }
-    
     // not much advantage compared with stod, even with 100% cache hit, which
     // means I need a faster hash map
     // need to test with boost::lexical_cast
@@ -251,7 +243,7 @@ Cache<real_type, cache_size_N, enable>::castToStr(const real_type& real)
             });
     if (existing != m_realToStr.end()) {
         ++m_cacheHit;
-        return m_strings[existing->second].m_str;
+        return m_strings[existing->second].m_str.c_str();
     }
 
     return this->updateRealCache(real);
@@ -279,7 +271,7 @@ Cache<real_type, cache_size_N, enable>::updateStrCache(const std::string& str)
         assert(oldest != m_reals.end());
         
         index = oldest - m_reals.begin();
-        m_strToReal.erase(oldest->m_str);
+        m_strToReal.erase(oldest->m_str.c_str());
     }
     else {
         index = m_strToReal.size();
@@ -298,12 +290,12 @@ Cache<real_type, cache_size_N, enable>::updateStrCache(const std::string& str)
         fp = std::stold(str);
     }
 
-    ::strcpy(m_reals[index].m_str, str.c_str());
+    m_reals[index].m_str = str;
     m_reals[index].m_real = fp;
     m_reals[index].m_time = updateTimestamp(m_latestTime);
 
     m_strToReal.emplace(
-            m_reals[index].m_str, index
+            m_reals[index].m_str.c_str(), index
             );
 
     return fp;
@@ -335,14 +327,13 @@ Cache<real_type, cache_size_N, enable>::updateRealCache(const real_type& fp)
         index = m_realToStr.size();
     }
 
-    // FIXME: won't work if m_str is fixed sized
-    ::sprintf(m_strings[index].m_str, "%f", fp);
+    m_strings[index].m_str = std::to_string(fp);
     m_strings[index].m_real = fp;
     m_strings[index].m_time = updateTimestamp(m_latestTime);
 
     m_realToStr.emplace(fp, index);
 
-    return m_strings[index].m_str;
+    return m_strings[index].m_str.c_str();
 }
 
 

@@ -182,7 +182,7 @@ INSTANTIATE_TEST_CASE_P(PerfTest,
         StringToRealPerfTest,
         ::testing::ValuesIn(testRanges));
 
-TEST_P(StringToRealPerfTest, DISABLED_testCacheHitPerformance)
+TEST_P(StringToRealPerfTest, testCacheHitPerformance)
 {
     constexpr int iteration = 1000*1000;
 
@@ -195,7 +195,7 @@ TEST_P(StringToRealPerfTest, DISABLED_testCacheHitPerformance)
     this->testWithoutCache(testSequence, iteration);
 }
 
-TEST_P(StringToRealPerfTest, DISABLED_testCacheMissPerformance)
+TEST_P(StringToRealPerfTest, testCacheMissPerformance)
 {
     constexpr int iteration = 1000*1000;
 
