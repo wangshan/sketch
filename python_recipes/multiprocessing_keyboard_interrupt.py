@@ -2,6 +2,8 @@ import signal
 import time
 import multiprocessing
 
+# See here for detail:
+# https://noswap.com/blog/python-multiprocessing-keyboardinterrupt
 
 def handle_KeyboardInterrupt():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
