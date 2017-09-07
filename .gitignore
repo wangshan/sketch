@@ -2,3 +2,4 @@ build
 *.swp
 temp
 tmp
+.DS_Store
